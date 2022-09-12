@@ -11,26 +11,88 @@ from common.variables import *
 from common.utils import *
 from decos import log
 from descrptrs import Port
-from metaclasses import ServerMaker
+from metaclasses import ServerVerifier
 
 # Инициализация логирования сервера.
 logger = logging.getLogger('server_dist')
 
 
-# Парсер аргументов коммандной строки.
-@log
-def arg_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-p', default=DEFAULT_PORT, type=int, nargs='?')
-    parser.add_argument('-a', default='', nargs='?')
-    namespace = parser.parse_args(sys.argv[1:])
-    listen_address = namespace.a
-    listen_port = namespace.p
-    return listen_address, listen_port
+class CLIArguments:
+    """ Парсер аргументов коммандной строки. """
+    parser_description = 'Запуск по параметрам -p порт -a адрес'
+
+    def __init__(self):
+        self.port = DEFAULT_PORT
+        self.address = DEFAULT_IP_ADDRESS
+        self.parser = argparse.ArgumentParser(
+            description=self.parser_description
+        )
+        self._add_port_argument()
+        self._add_address_argument()
+
+    def _add_port_argument(self):
+        self.parser.add_argument(
+            '-p',
+            type=int,
+            help="Укажите порт сервера",
+            required=False
+        )
+
+    def _add_address_argument(self):
+        self.parser.add_argument(
+            '-a',
+            type=str,
+            help="Укажите ip адрес сервера",
+            required=False
+        )
+
+    def get_connect_params(self):
+        """ Вернет кортеж из порта и адреса. """
+        args = self.parser.parse_args()
+        if args.p:
+            self.port = args.p
+            self._check_port()
+        if args.a:
+            self.address = args.a
+            self._check_ip_address()
+        return self.address, self.port
+
+    def _check_port(self):
+        """ Проверит порт на корректность. """
+        if self.port < 1024 or self.port > 65535:
+            print(
+                'В качастве порта может быть указано только число в диапазоне от 1024 до 65535.'
+            )
+            sys.exit(1)
+
+    def _check_ip_address(self):
+        """ Проверит ip адрес на корректность. """
+        if not (self.address.count('.') == 3 and all(
+                [
+                    num.isdigit() and 0 <= int(num) <= 256
+                    for num in self.address.split('.')
+                ]
+        )):
+            print(
+                'В качастве адреса должен быть указан валидный ip адрес.'
+            )
+            sys.exit(1)
+
+
+# # Парсер аргументов коммандной строки.
+# @log
+# def arg_parser():
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument('-p', default=DEFAULT_PORT, type=int, nargs='?')
+#     parser.add_argument('-a', default='', nargs='?')
+#     namespace = parser.parse_args(sys.argv[1:])
+#     listen_address = namespace.a
+#     listen_port = namespace.p
+#     return listen_address, listen_port
 
 
 # Основной класс сервера
-class Server(metaclass=ServerMaker):
+class Server(metaclass=ServerVerifier):
     port = Port()
 
     def __init__(self, listen_address, listen_port):
@@ -82,7 +144,8 @@ class Server(metaclass=ServerMaker):
             # Проверяем на наличие ждущих клиентов
             try:
                 if self.clients:
-                    recv_data_lst, send_data_lst, err_lst = select.select(self.clients, self.clients, [], 0)
+                    recv_data_lst, send_data_lst, err_lst = select.select(
+                        self.clients, self.clients, [], 0)
             except OSError:
                 pass
 
@@ -90,9 +153,12 @@ class Server(metaclass=ServerMaker):
             if recv_data_lst:
                 for client_with_message in recv_data_lst:
                     try:
-                        self.process_client_message(get_message(client_with_message), client_with_message)
+                        self.process_client_message(
+                            get_message(client_with_message),
+                            client_with_message)
                     except:
-                        logger.info(f'Клиент {client_with_message.getpeername()} отключился от сервера.')
+                        logger.info(
+                            f'Клиент {client_with_message.getpeername()} отключился от сервера.')
                         self.clients.remove(client_with_message)
 
             # Если есть сообщения, обрабатываем каждое.
@@ -100,7 +166,8 @@ class Server(metaclass=ServerMaker):
                 try:
                     self.process_message(message, send_data_lst)
                 except:
-                    logger.info(f'Связь с клиентом с именем {message[DESTINATION]} была потеряна')
+                    logger.info(
+                        f'Связь с клиентом с именем {message[DESTINATION]} была потеряна')
                     self.clients.remove(self.names[message[DESTINATION]])
                     del self.names[message[DESTINATION]]
             self.messages.clear()
@@ -108,10 +175,13 @@ class Server(metaclass=ServerMaker):
     # Функция адресной отправки сообщения определённому клиенту. Принимает словарь сообщение, список зарегистрированых
     # пользователей и слушающие сокеты. Ничего не возвращает.
     def process_message(self, message, listen_socks):
-        if message[DESTINATION] in self.names and self.names[message[DESTINATION]] in listen_socks:
+        if message[DESTINATION] in self.names and self.names[
+            message[DESTINATION]] in listen_socks:
             send_message(self.names[message[DESTINATION]], message)
-            logger.info(f'Отправлено сообщение пользователю {message[DESTINATION]} от пользователя {message[SENDER]}.')
-        elif message[DESTINATION] in self.names and self.names[message[DESTINATION]] not in listen_socks:
+            logger.info(
+                f'Отправлено сообщение пользователю {message[DESTINATION]} от пользователя {message[SENDER]}.')
+        elif message[DESTINATION] in self.names and self.names[
+            message[DESTINATION]] not in listen_socks:
             raise ConnectionError
         else:
             logger.error(
@@ -122,7 +192,8 @@ class Server(metaclass=ServerMaker):
     def process_client_message(self, message, client):
         logger.debug(f'Разбор сообщения от клиента : {message}')
         # Если это сообщение о присутствии, принимаем и отвечаем
-        if ACTION in message and message[ACTION] == PRESENCE and TIME in message and USER in message:
+        if ACTION in message and message[
+            ACTION] == PRESENCE and TIME in message and USER in message:
             # Если такой пользователь ещё не зарегистрирован, регистрируем,
             # иначе отправляем ответ и завершаем соединение.
             if message[USER][ACCOUNT_NAME] not in self.names.keys():
@@ -136,12 +207,14 @@ class Server(metaclass=ServerMaker):
                 client.close()
             return
         # Если это сообщение, то добавляем его в очередь сообщений. Ответ не требуется.
-        elif ACTION in message and message[ACTION] == MESSAGE and DESTINATION in message and TIME in message \
+        elif ACTION in message and message[
+            ACTION] == MESSAGE and DESTINATION in message and TIME in message \
                 and SENDER in message and MESSAGE_TEXT in message:
             self.messages.append(message)
             return
         # Если клиент выходит
-        elif ACTION in message and message[ACTION] == EXIT and ACCOUNT_NAME in message:
+        elif ACTION in message and message[
+            ACTION] == EXIT and ACCOUNT_NAME in message:
             self.clients.remove(self.names[ACCOUNT_NAME])
             self.names[ACCOUNT_NAME].close()
             del self.names[ACCOUNT_NAME]
@@ -156,7 +229,7 @@ class Server(metaclass=ServerMaker):
 
 def main():
     # Загрузка параметров командной строки, если нет параметров, то задаём значения по умоланию.
-    listen_address, listen_port = arg_parser()
+    listen_address, listen_port = CLIArguments().get_connect_params()
 
     # Создание экземпляра класса - сервера.
     server = Server(listen_address, listen_port)
