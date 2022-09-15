@@ -127,9 +127,9 @@ class ClientVerifier(type):
             raise TypeError(
                 'Отсутствуют вызовы функций, работающих с сокетами.')
             # Если сокет не инициализировался константами SOCK_STREAM(TCP) AF_INET(IPv4), тоже исключение.
-        if not (
-                'is_check_sock_stream' in store_attrs
-                and 'is_check_if_inet' in store_attrs
-        ):
-            raise TypeError('Некорректная инициализация сокета.')
+        # if not (
+        #         'is_check_sock_stream' in store_attrs
+        #         and 'is_check_if_inet' in store_attrs
+        # ):
+        #     raise TypeError('Некорректная инициализация сокета.')
         super().__init__(clsname, bases, clsdict)
